@@ -15,15 +15,26 @@ namespace migrate
 
         static void Main(string[] args)
         {
-            if (args.Length != 3)
+            if (args.Length != 3 && args.Length != 4)
             {
                 Console.WriteLine("Usage:");
                 Console.WriteLine();
-                Console.WriteLine("\tmigrate <context assembly path> <provider name> <connection string>");
+                Console.WriteLine("\tmigrate <context assembly path> <provider name> <connection string> [<config file>]");
                 return;
             }
 
             var migrationsAsemblyPath = Path.GetFullPath(args[0]);
+
+            string configFile;
+
+            if (args.Length == 4)
+            {
+                configFile = args[3];
+            }
+            else
+            {
+                configFile = Path.ChangeExtension(migrationsAsemblyPath, ".dll.config");      
+            }
 
             var connectionProvider = args[1];
             var connectionString = args[2];                        
@@ -46,7 +57,7 @@ namespace migrate
 
             var connectionInfo = NewDbConnectionInfo(connectionString, connectionProvider);
             
-            using (dynamic tooling = NewToolingFacade(name, toolDir, migrationsAsemblyPath, connectionInfo))
+            using (dynamic tooling = NewToolingFacade(name, toolDir, connectionInfo, configFile))
             {
                 var domain = (AppDomain)tooling.GetType().GetField("_appDomain", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(tooling);                
 
@@ -61,11 +72,28 @@ namespace migrate
             }
         }
 
-        private static dynamic NewToolingFacade(string name, string toolDir, string migrationsAsemblyPath, object connectionInfo)
+        private static dynamic NewToolingFacade(string name, string toolDir, object connectionInfo, string configFile)
+        {
+            if (entityFrameworkAssembly.GetName().Version.Major == 5)
+            {
+                return NewToolingFacadeForEf5(name, toolDir, connectionInfo, configFile);
+            }
+
+            return NewToolingFacadeForEf6(name, toolDir, connectionInfo, configFile);
+        }
+
+        private static dynamic NewToolingFacadeForEf5(string name, string toolDir, object connectionInfo, string configFile)
         {
             var t = entityFrameworkAssembly.GetType("System.Data.Entity.Migrations.Design.ToolingFacade");
 
-            return Activator.CreateInstance(t, name, name, "", toolDir, Path.ChangeExtension(migrationsAsemblyPath, ".dll.config"), ".", connectionInfo);
+            return Activator.CreateInstance(t, name, "", toolDir, configFile, ".", connectionInfo);
+        }
+
+        private static dynamic NewToolingFacadeForEf6(string name, string toolDir, object connectionInfo, string configFile)
+        {
+            var t = entityFrameworkAssembly.GetType("System.Data.Entity.Migrations.Design.ToolingFacade");
+
+            return Activator.CreateInstance(t, name, name, "", toolDir, configFile, ".", connectionInfo);
         }
 
         private static object NewDbConnectionInfo(string connectionString, string connectionProvider)
